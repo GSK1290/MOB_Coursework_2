@@ -29,6 +29,11 @@ install(PROGRAMS
         pf_localisation/node.py
         DESTINATION lib/${PROJECT_NAME})
 
+install(DIRECTORY
+        launch
+        DESTINATION
+        share/${PROJECT_NAME}/)
+
 ament_python_install_package(${PROJECT_NAME})
 
 # Set up the libraries and header search paths for this target
