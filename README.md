@@ -20,9 +20,9 @@ echo "source /opt/ros/jazzy/setup.sh" >> ~/.bashrc
 echo "export ROS_LOCALHOST_ONLY=1" >> ~/.bashrc
 ```
 ## 2. Working with ROS
-Build your ROS workspace with `colcon`, **\*run form the root directory of the repo**.
+Build your ROS workspace with `colcon`, **\*run form the root directory of the repo  --symlink-install is not supported for this workspace**.
 ```
-colcon build --symlink-install
+colcon build
 ```
 Source your work space with 
 ```
