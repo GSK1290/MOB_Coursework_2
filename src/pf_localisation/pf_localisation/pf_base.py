@@ -34,7 +34,7 @@ class PFLocaliserBase(object):
         self.occupancy_map = OccupancyGrid()
         self.particlecloud =  PoseArray()
         self.tf_message = TFMessage()
-        
+                
         self._logger = logger
         self._clock = clock
         self._update_lock =  Lock()
