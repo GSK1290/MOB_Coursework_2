@@ -4,16 +4,21 @@
 cleanup() {
     echo "Cleaning up processes..."
     
-    # Kill recording process and its children
+    # Stop bag recording gracefully first (SIGINT allows it to close properly)
     if [ ! -z "$RECORD_PID" ]; then
-        pkill -9 -P $RECORD_PID 2>/dev/null
+        echo "Stopping bag recording gracefully..."
+        kill -SIGINT $RECORD_PID 2>/dev/null
+        sleep 3  # Give it time to write metadata
+        
+        # Force kill if still running
         kill -9 $RECORD_PID 2>/dev/null
+        pkill -9 -P $RECORD_PID 2>/dev/null
     fi
     
     # Kill launch process and its children
     if [ ! -z "$LAUNCH_PID" ]; then
-        pkill -9 -P $LAUNCH_PID 2>/dev/null
         kill -9 $LAUNCH_PID 2>/dev/null
+        pkill -9 -P $LAUNCH_PID 2>/dev/null
     fi
     
     # Nuclear option - kill all related processes
@@ -41,13 +46,16 @@ LAUNCH_PID=$!
 sleep 3
 
 # Start bag recording in background
-ros2 bag record -o simpath1_self_amcl /base_pose_ground_truth /estimatedpose &
+ros2 bag record -o simpath2_amcl /base_pose_ground_truth /amcl_pose &
 RECORD_PID=$!
 
 # Give recording time to initialize
 sleep 2
 
 # Play the bag file (this will block until done)
-ros2 bag play ./src/pf_localisation/data/sim_data/simpath1 --clock
+ros2 bag play ./src/pf_localisation/data/sim_data/simpath2 --clock
+
+echo "Playback finished. Waiting for bag to finalize..."
+sleep 2  # Give bag recorder time to finish writing
 
 # Cleanup will be called automatically

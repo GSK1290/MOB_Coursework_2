@@ -4,9 +4,9 @@ from rosbags.highlevel import AnyReader
 from rosbags.typesys import Stores, get_typestore
 
 # ---------- Settings ----------
-bag_path = './simpath1_self_amcl'   # your bag folder or .mcap file
+bag_path = './simpath2_amcl'   # your bag folder or .mcap file
 GT_TOPIC = '/base_pose_ground_truth'
-EST_TOPIC = '/estimatedpose'
+EST_TOPIC = '/amcl_pose'
 # ------------------------------
 
 typestore = get_typestore(Stores.ROS2_JAZZY)
