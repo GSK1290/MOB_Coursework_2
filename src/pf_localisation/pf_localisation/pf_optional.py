@@ -34,7 +34,7 @@ class PFLocaliser(PFLocaliserBase):
         self.BIN_SIZE_XY = 0.5
         self.BIN_SIZE_THETA = 0.2
         
-        # pre-resampling data (for weighted mean)
+        # pre-resampling data
         self._particles_before_resample = []
         self._weights_before_resample = []
         
