@@ -15,24 +15,12 @@ class PFLocaliser(PFLocaliserBase):
         self.ODOM_ROTATION_NOISE = 0.05
         self.ODOM_TRANSLATION_NOISE = 0.05
         self.ODOM_DRIFT_NOISE = 0.05
-
-         # Augmented MCL parameters
-        self.ALPHA_SLOW = 0.01 
-        self.ALPHA_FAST = 0.1    
-        self.w_slow = 0.0        
-        self.w_fast = 0.0        
-         
+        
+        # Kidnapping recovery parameter
+        self.RANDOM_PARTICLE_RATIO = 0.25
+ 
         # ----- Sensor model parameters
         self.NUMBER_PREDICTED_READINGS = 20
-
-        # Adaptive MCL parameters
-        self.MIN_PARTICLES = 300
-        self.MAX_PARTICLES = 2000
-
-        self.KLD_EPSILON = 0.05
-        self.KLD_Z = 3.0
-        self.BIN_SIZE_XY = 0.5
-        self.BIN_SIZE_THETA = 0.2
         
         # pre-resampling data (for weighted mean)
         self._particles_before_resample = []
@@ -82,11 +70,8 @@ class PFLocaliser(PFLocaliserBase):
 
         return particle_cloud
     
+
     def _create_random_particle(self):
-        """
-        Create a random particle within free space on the map.
-        Only generates particles in areas that are not obstacles.
-        """
         
         particle = Pose()
 
@@ -96,38 +81,10 @@ class PFLocaliser(PFLocaliserBase):
         origin_x = self.occupancy_map.info.origin.position.x
         origin_y = self.occupancy_map.info.origin.position.y
 
-        max_attempts = 100
-        attempts = 0
-        
-        while attempts < max_attempts:
-            x = origin_x + random.uniform(0, map_width * map_res)
-            y = origin_y + random.uniform(0, map_height * map_res)
-            
-            grid_x = int((x - origin_x) / map_res)
-            grid_y = int((y - origin_y) / map_res)
-            
-            if 0 <= grid_x < map_width and 0 <= grid_y < map_height:
-                
-                map_index = grid_y * map_width + grid_x
-                occupancy_value = self.occupancy_map.data[map_index]
-                
-                
-                if occupancy_value >= 0 and occupancy_value < 50:  
-                    particle.position.x = x
-                    particle.position.y = y
-                    particle.position.z = 0.0
-                    
-                    heading = random.uniform(-math.pi, math.pi)
-                    particle.orientation = rotateQuaternion(Quaternion(w=1.0), heading)
-                    
-                    return particle
-            
-            attempts += 1
-        
         particle.position.x = origin_x + random.uniform(0, map_width * map_res)
         particle.position.y = origin_y + random.uniform(0, map_height * map_res)
         particle.position.z = 0.0
-        
+
         heading = random.uniform(-math.pi, math.pi)
         particle.orientation = rotateQuaternion(Quaternion(w=1.0), heading)
 
@@ -149,30 +106,6 @@ class PFLocaliser(PFLocaliserBase):
 
         return new_particle
 
-    def _discretize_pose(self, x, y, theta):
-        
-        x_bin = int(math.floor(x / self.BIN_SIZE_XY))
-        y_bin = int(math.floor(y / self.BIN_SIZE_XY))
-        theta_bin = int(math.floor(theta / self.BIN_SIZE_THETA))
-        
-        return (x_bin, y_bin, theta_bin)
-    
-    def _compute_kld_bound(self, k):
-        
-        if k <= 1:
-            return self.MAX_PARTICLES
-        
-        k_1 = k - 1
-        
-        term1 = 1.0 - 2.0 / (9.0 * k_1)
-        term2 = math.sqrt(2.0 / (9.0 * k_1)) * self.KLD_Z
-        
-        M_x = (k_1 / (2.0 * self.KLD_EPSILON)) * math.pow(term1 + term2, 3)
-        
-        M_x = int(math.ceil(M_x))
-        M_x = max(self.MIN_PARTICLES, min(self.MAX_PARTICLES, M_x))
-        
-        return M_x
 
     def update_particle_cloud(self, scan):
         
@@ -182,6 +115,9 @@ class PFLocaliser(PFLocaliserBase):
         RESAMPLE_NOISE_X = 0.02      
         RESAMPLE_NOISE_Y = 0.02 
         RESAMPLE_NOISE_THETA = 0.02
+
+        num_random_particles = int(self.RANDOM_PARTICLE_RATIO * M)
+        num_resampled_particles = M - num_random_particles
         
         weights = []
         for pose in S:
@@ -194,25 +130,9 @@ class PFLocaliser(PFLocaliserBase):
             weights = [1.0] * M
             total_weight = M
         
-        average_weight = total_weight / M
-        
-        if self.w_slow == 0.0:
-            self.w_slow = average_weight
-            self.w_fast = average_weight
-        else:
-            self.w_slow += self.ALPHA_SLOW * (average_weight - self.w_slow)
-            self.w_fast += self.ALPHA_FAST * (average_weight - self.w_fast)
-        
-        
-        if self.w_slow > 0.0:
-            random_injection_prob = max(0.0, 1.0 - (self.w_fast / self.w_slow))
-        else:
-            random_injection_prob = 0.0
-    
-        
         normalized_weights = [w / total_weight for w in weights]
 
-        self._weights_before_resample = normalized_weights[:]
+        self._weights_before_resample = normalized_weights
         self._particles_before_resample = [self._copy_pose(pose) for pose in S]
         
         c = [normalized_weights[0]]
@@ -221,66 +141,34 @@ class PFLocaliser(PFLocaliserBase):
             c.append(c_i)
         
         S_prime = []
-        occupied_bins = set()
-        
-        M_x = self.MIN_PARTICLES
-        
-        u = random.uniform(0, 1.0 / M)
+        u = random.uniform(0, 1.0 / num_resampled_particles)
         i = 0
-        j = 0
         
-        while j < M_x and len(S_prime) < self.MAX_PARTICLES:
+        for j in range(num_resampled_particles):
+
+            while u > c[i]:
+                i = i + 1
             
-            if random.random() < random_injection_prob:
-                random_particle = self._create_random_particle()
-                S_prime.append(random_particle)
-                
-                random_heading = getHeading(random_particle.orientation)
-                particle_bin = self._discretize_pose(
-                    random_particle.position.x,
-                    random_particle.position.y,
-                    random_heading
-                )
-                
-                if particle_bin not in occupied_bins:
-                    occupied_bins.add(particle_bin)
-                    k = len(occupied_bins)
-                    M_x = self._compute_kld_bound(k)
+            selected = S[i]
+            new_particle = Pose()
             
-            else:
-                while i < len(c) and u > c[i]:
-                    i = i + 1
-                
-                if i >= len(S):
-                    i = len(S) - 1
-                
-                selected = S[i]
-                new_particle = Pose()
-                
-                new_particle.position.x = selected.position.x + random.gauss(0, RESAMPLE_NOISE_X)
-                new_particle.position.y = selected.position.y + random.gauss(0, RESAMPLE_NOISE_Y)
-                new_particle.position.z = 0.0
-                
-                old_heading = getHeading(selected.orientation)
-                new_heading = old_heading + random.gauss(0, RESAMPLE_NOISE_THETA)
-                new_particle.orientation = rotateQuaternion(Quaternion(w=1.0), new_heading)
-                
-                S_prime.append(new_particle)
-                
-                particle_bin = self._discretize_pose(
-                    new_particle.position.x,
-                    new_particle.position.y,
-                    new_heading
-                )
-                
-                if particle_bin not in occupied_bins:
-                    occupied_bins.add(particle_bin)
-                    k = len(occupied_bins)
-                    M_x = self._compute_kld_bound(k)
+            new_particle.position.x = selected.position.x + random.gauss(0, RESAMPLE_NOISE_X)
+            new_particle.position.y = selected.position.y + random.gauss(0, RESAMPLE_NOISE_Y)
+            new_particle.position.z = 0.0
             
-            u = u + 1.0 / M
-            j = j + 1
+            old_heading = getHeading(selected.orientation)
+            new_heading = old_heading + random.gauss(0, RESAMPLE_NOISE_THETA)
+            new_particle.orientation = rotateQuaternion(Quaternion(w=1.0), new_heading)
+            
+            S_prime.append(new_particle)
+            
+            u = u + 1.0 / num_resampled_particles
+
     
+        for j in range(num_random_particles):
+            random_particle = self._create_random_particle()
+            S_prime.append(random_particle)
+        
         self.particlecloud.poses = S_prime
 
 
@@ -301,13 +189,9 @@ class PFLocaliser(PFLocaliserBase):
             | (geometry_msgs.msg.Pose) robot's estimated pose.
         """
        
-        if len(self._particles_before_resample) == 0:
-            S = self.particlecloud.poses
-            weights = [1.0 / len(S)] * len(S)
-        else:
-            S = self._particles_before_resample
-            weights = self._weights_before_resample
+        S = self.particlecloud.poses
 
+        weights = self._weights_before_resample
         max_weight_idx = weights.index(max(weights))
         best_particle = S[max_weight_idx]
 
@@ -359,5 +243,4 @@ class PFLocaliser(PFLocaliserBase):
         estimated_pose.orientation = rotateQuaternion(Quaternion(w=1.0), curr_theta)
 
         return estimated_pose
-
-    
+        
