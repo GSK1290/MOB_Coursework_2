@@ -16,7 +16,7 @@ class PFLocaliser(PFLocaliserBase):
         self.ODOM_TRANSLATION_NOISE = 0.05
         self.ODOM_DRIFT_NOISE = 0.05
 
-         # ----- Augmented MCL parameters (exponential weight filters)
+         # Augmented MCL parameters
         self.ALPHA_SLOW = 0.01 
         self.ALPHA_FAST = 0.1    
         self.w_slow = 0.0        
